@@ -4,8 +4,12 @@ import os
 import time
 from typing import Any
 
+from dotenv import load_dotenv
+
 from bim_ai import ifc_tools
 
+
+load_dotenv()
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_MODEL = "deepseek-v4-flash"
