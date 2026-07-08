@@ -62,6 +62,26 @@ def _build_tools(ifc_path: str):
         """Return project, site, building, storey, and space entities."""
         return ifc_tools.spatial_structure(ifc_path)
 
+    def update_text_attribute_by_global_id(global_id: str, attribute: str, value: str) -> str:
+        """Write a modified IFC copy after changing one editable text attribute by GlobalId."""
+        return ifc_tools.update_text_attribute_by_global_id(ifc_path, global_id, attribute, value)
+
+    def update_text_attribute_by_step_id(step_id: int, attribute: str, value: str) -> str:
+        """Write a modified IFC copy after changing one editable text attribute by STEP id."""
+        return ifc_tools.update_text_attribute_by_step_id(ifc_path, int(step_id), attribute, value)
+
+    def update_property_single_value(global_id: str, pset_name: str, property_name: str, value: str) -> str:
+        """Write a modified IFC copy after changing an existing IfcPropertySingleValue."""
+        return ifc_tools.update_property_single_value(ifc_path, global_id, pset_name, property_name, value)
+
+    def delete_product_by_global_id(global_id: str) -> str:
+        """Write a modified IFC copy after deleting one supported IFC product by GlobalId."""
+        return ifc_tools.delete_product_by_global_id(ifc_path, global_id)
+
+    def delete_product_by_step_id(step_id: int) -> str:
+        """Write a modified IFC copy after deleting one supported IFC product by STEP id."""
+        return ifc_tools.delete_product_by_step_id(ifc_path, int(step_id))
+
     return [
         StructuredTool.from_function(
             name="ifc_model_overview",
@@ -97,6 +117,50 @@ def _build_tools(ifc_path: str):
             name="ifc_spatial_structure",
             description="Return project, site, building, storey, and space entities.",
             func=get_spatial_structure,
+        ),
+        StructuredTool.from_function(
+            name="ifc_update_text_attribute_by_global_id",
+            description=(
+                "Modify an editable text attribute on one IFC entity by GlobalId and write a new IFC copy. "
+                "Editable attributes: Name, Description, ObjectType, LongName, Tag. "
+                "Use only when the user explicitly asks to change the IFC file."
+            ),
+            func=update_text_attribute_by_global_id,
+        ),
+        StructuredTool.from_function(
+            name="ifc_update_text_attribute_by_step_id",
+            description=(
+                "Modify an editable text attribute on one IFC entity by STEP id and write a new IFC copy. "
+                "Editable attributes: Name, Description, ObjectType, LongName, Tag. "
+                "Use only when the user explicitly asks to change the IFC file."
+            ),
+            func=update_text_attribute_by_step_id,
+        ),
+        StructuredTool.from_function(
+            name="ifc_update_property_single_value",
+            description=(
+                "Modify an existing IfcPropertySingleValue in a property set for one entity by GlobalId and "
+                "write a new IFC copy. Use only when the user explicitly asks to change the IFC file."
+            ),
+            func=update_property_single_value,
+        ),
+        StructuredTool.from_function(
+            name="ifc_delete_product_by_global_id",
+            description=(
+                "Delete one supported IFC product by GlobalId and write a new IFC copy. "
+                "Supported targets include IfcElement, IfcElementType, IfcSpatialElement, "
+                "IfcSpatialElementType, and IfcAnnotation. Use only when the user explicitly asks to delete."
+            ),
+            func=delete_product_by_global_id,
+        ),
+        StructuredTool.from_function(
+            name="ifc_delete_product_by_step_id",
+            description=(
+                "Delete one supported IFC product by STEP id and write a new IFC copy. "
+                "Supported targets include IfcElement, IfcElementType, IfcSpatialElement, "
+                "IfcSpatialElementType, and IfcAnnotation. Use this for requests like 'delete door #978497'."
+            ),
+            func=delete_product_by_step_id,
         ),
     ]
 
@@ -142,7 +206,10 @@ def run_ifc_agent(
         system_prompt=(
             system_prompt
             + "\n\nUse IFC tools for model facts. Respect the user's role and permission policy. "
-            "Return concise answers with relevant GlobalIds, STEP ids, and IFC types when available."
+            "Return concise answers with relevant GlobalIds, STEP ids, and IFC types when available. "
+            "IFC modification tools may be used only when the user explicitly requests a change. "
+            "IFC deletion tools may be used only when the user explicitly requests deletion of a specific target. "
+            "Never overwrite the source IFC file; write and report the modified copy path."
         ),
     )
     history = _to_lc_history(messages[:-1], MAX_HISTORY_MESSAGES)
