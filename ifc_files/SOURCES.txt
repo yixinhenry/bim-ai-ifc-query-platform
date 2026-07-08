@@ -1,0 +1,25 @@
+IFC files downloaded for:
+Gao et al. (2026), "Multi-agent framework for schema-guided reasoning and tool-augmented interaction with IFC models"
+
+Files:
+- AC20-FZK-Haus.ifc
+  Source page: https://www.ifcwiki.org/index.php?title=KIT_IFC_Examples
+  Download URL: https://www.ifcwiki.org/images/e/e3/AC20-FZK-Haus.ifc
+
+- Schependomlaan.ifc
+  Source repository: https://github.com/jakob-beetz/DataSetSchependomlaan
+  Repository path: Design model IFC/IFC Schependomlaan.ifc
+  Download URL: https://raw.githubusercontent.com/jakob-beetz/DataSetSchependomlaan/master/Design%20model%20IFC/IFC%20Schependomlaan.ifc
+
+- Duplex-ARC.ifc
+  Source repository: https://github.com/sylvainHellin/ifc-bench/tree/main/projects/duplex
+  Repository path: projects/duplex/arc.ifc
+  Download URL: https://media.githubusercontent.com/media/sylvainHellin/ifc-bench/main/projects/duplex/arc.ifc
+
+- Duplex-MEP.ifc
+  Source repository: https://github.com/sylvainHellin/ifc-bench/tree/main/projects/duplex
+  Repository path: projects/duplex/mep.ifc
+  Download URL: https://media.githubusercontent.com/media/sylvainHellin/ifc-bench/main/projects/duplex/mep.ifc
+
+Validation:
+- All downloaded .ifc files start with ISO-10303-21;.
