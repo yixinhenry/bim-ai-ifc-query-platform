@@ -1,6 +1,6 @@
 # BIM AI IFC Query Platform
 
-This is a LangChain-based experimental platform for AI in BIM security research.
+This is a LangChain-based experimental platform for AI in BIM research.
 
 The platform is organized around IFC projects. Each uploaded IFC file becomes one project. A project can contain multiple conversations, and every conversation has its own required system prompt and chat history.
 
