@@ -1,45 +1,77 @@
 # BIM AI IFC Query Platform
 
-This is a LangChain-based experimental platform for AI in BIM research.
+This is a lightweight Streamlit platform for querying IFC building models with LangChain, DeepSeek, and IfcOpenShell.
 
-The platform is organized around IFC projects. Each uploaded IFC file becomes one project. A project can contain multiple conversations, and every conversation has its own required system prompt and chat history.
+Each uploaded IFC file becomes a project. Each project can have multiple conversations, and every conversation keeps its own system prompt and chat history.
 
-## Core Design
+## Features
 
-- `IfcOpenShell` handles trusted IFC parsing and querying.
-- `LangChain` connects the LLM with IFC query tools.
-- `SQLite` persists projects, conversations, system prompts, and messages.
-- `Streamlit` provides the first UI with a project sidebar and chat workspace.
+- IFC parsing and model queries through `IfcOpenShell`
+- LLM tool calling through `LangChain`
+- Local project, prompt, and chat storage with `SQLite`
+- Browser-based IFC viewer inside the Streamlit app
+- Optional IFC editing tools for explicit update and delete requests
+
+## Requirements
+
+- Python 3.11 or newer
+- A DeepSeek API key
+- Internet access for the embedded IFC viewer frontend dependency
 
 ## Setup
 
+Clone the repository and enter the project directory:
+
 ```powershell
-$env:PIP_CACHE_DIR="E:\BIM_AI_Deps\pip-cache"
-python -m venv E:\BIM_AI_Deps\bim-ai-ifc
-E:\BIM_AI_Deps\bim-ai-ifc\Scripts\python.exe -m pip install --cache-dir E:\BIM_AI_Deps\pip-cache -r requirements.txt
+git clone https://github.com/yixinhenry/bim-ai-ifc-query-platform.git
+cd bim-ai-ifc-query-platform
 ```
 
-Model configuration is kept in code/environment variables, not in the UI. Create `.env`:
+Create a virtual environment:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+Create a local `.env` file from the example:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Edit `.env` and set your API key:
 
 ```text
-DEEPSEEK_API_KEY=your_api_key
+DEEPSEEK_API_KEY=your_deepseek_api_key
 BIM_AI_MODEL=deepseek-v4-flash
 BIM_AI_BASE_URL=https://api.deepseek.com
 BIM_AI_TEMPERATURE=0
+BIM_AI_DATA_DIR=data
 ```
 
-Run:
+Run the app:
 
 ```powershell
-E:\BIM_AI_Deps\bim-ai-ifc\Scripts\python.exe -m streamlit run app.py
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-Runtime data is stored under `E:\BIM_AI_Data`, including the SQLite database and uploaded IFC files.
+Open the URL printed by Streamlit, usually `http://localhost:8501`.
 
 ## Workflow
 
 1. Upload an IFC file in the left sidebar to create a project.
-2. Create a new chat under that project and enter a system prompt.
-3. Ask IFC questions in the chat.
+2. Open the project and create a new conversation.
+3. Enter a system prompt for that conversation.
+4. Ask questions about the IFC model in the chat panel.
 
-Each conversation preserves its own system prompt and message history, so different user identities, access policies, and query constraints can be tested independently.
+Runtime data is stored under `BIM_AI_DATA_DIR`. The default is the local `data` folder, which is ignored by Git.
+
+## Sample IFC Files
+
+The `ifc_files` folder contains public sample IFC files for local testing. See `ifc_files/SOURCES.txt` for source information.
+
+## Notes
+
+The app is intended for research and local experimentation. IFC modification tools write changes back to the uploaded project IFC file only when the user explicitly asks for an update or deletion.
