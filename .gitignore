@@ -5,6 +5,7 @@ __pycache__/
 .agents/
 .codex/
 tmp/
+data/
 data/app.db
 data/projects/
 ifc_files/modified/

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import queue
 import threading
@@ -24,8 +25,17 @@ from bim_ai.storage import (
 from bim_ai.viewer_server import start_viewer_server
 
 
+load_dotenv()
+
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path("E:/BIM_AI_Data")
+
+
+def runtime_path(env_name: str, default: str) -> Path:
+    path = Path(os.getenv(env_name, default)).expanduser()
+    return path if path.is_absolute() else BASE_DIR / path
+
+
+DATA_DIR = runtime_path("BIM_AI_DATA_DIR", "data")
 PROJECT_DIR = DATA_DIR / "projects"
 DB_PATH = DATA_DIR / "app.db"
 
@@ -257,7 +267,6 @@ def render_viewer(project: dict) -> None:
 
 
 def main() -> None:
-    load_dotenv()
     st.set_page_config(page_title="BIM AI IFC Query", layout="wide")
     render_viewer_css()
     init_db(DB_PATH)
