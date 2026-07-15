@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 
 EDITABLE_TEXT_ATTRIBUTES = {"Name", "Description", "ObjectType", "LongName", "Tag"}
@@ -25,14 +27,6 @@ def _load_ifc(ifc_path: str):
             "IfcOpenShell is not installed. Install project dependencies with `pip install -r requirements.txt`."
         ) from exc
     return ifcopenshell.open(str(Path(ifc_path)))
-
-
-def _modified_ifc_path(ifc_path: str) -> Path:
-    source = Path(ifc_path)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    target_dir = source.parent / "modified"
-    target_dir.mkdir(parents=True, exist_ok=True)
-    return target_dir / f"{source.stem}_modified_{timestamp}{source.suffix}"
 
 
 def _entity_by_global_id(model: Any, global_id: str) -> Any | None:
@@ -108,9 +102,15 @@ def _coerce_like_existing(existing_value: Any, new_value: str) -> Any:
 
 
 def _write_modified_copy(model: Any, ifc_path: str) -> str:
-    output_path = _modified_ifc_path(ifc_path)
-    model.write(str(output_path))
-    return str(output_path)
+    """Write changes atomically back to the single IFC owned by the project."""
+    source = Path(ifc_path)
+    temp_path = source.with_name(f".{source.stem}.{uuid4().hex}.tmp{source.suffix}")
+    try:
+        model.write(str(temp_path))
+        os.replace(temp_path, source)
+    finally:
+        temp_path.unlink(missing_ok=True)
+    return str(source)
 
 
 def _can_remove_with_root_api(entity: Any) -> bool:

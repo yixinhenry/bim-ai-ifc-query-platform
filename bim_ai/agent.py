@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Callable
 from typing import Any
 
 from dotenv import load_dotenv
@@ -20,6 +21,12 @@ MODEL_NAME = os.getenv("BIM_AI_MODEL", DEEPSEEK_MODEL)
 BASE_URL = os.getenv("BIM_AI_BASE_URL", DEEPSEEK_BASE_URL)
 TEMPERATURE = float(os.getenv("BIM_AI_TEMPERATURE", "0"))
 MAX_HISTORY_MESSAGES = int(os.getenv("BIM_AI_MAX_HISTORY_MESSAGES", "20"))
+LogCallback = Callable[[str, str], None]
+
+
+def _emit_log(log_callback: LogCallback | None, content: str, level: str = "info") -> None:
+    if log_callback is not None:
+        log_callback(content, level)
 
 
 def _require_langchain() -> None:
@@ -35,56 +42,137 @@ def _require_langchain() -> None:
         )
 
 
-def _build_tools(ifc_path: str):
+def _build_tools(ifc_path: str, log_callback: LogCallback | None = None):
     from langchain_core.tools import StructuredTool
+
+    def call_tool(tool_name: str, detail: str, func, *args, **kwargs):
+        _emit_log(log_callback, f"开始 {tool_name}：{detail}")
+        try:
+            result = func(*args, **kwargs)
+        except Exception as exc:
+            _emit_log(log_callback, f"{tool_name} 失败：{exc}", "error")
+            raise
+        _emit_log(log_callback, f"完成 {tool_name}")
+        return result
 
     def model_overview() -> str:
         """Return IFC schema, entity count, and common entity types."""
-        return ifc_tools.model_overview(ifc_path)
+        return call_tool("模型概览", "读取 schema、实体数量和常见实体类型", ifc_tools.model_overview, ifc_path)
 
     def list_entities_by_type(ifc_type: str, limit: int = 50) -> str:
         """List IFC entities by IFC type."""
-        return ifc_tools.list_entities_by_type(ifc_path, ifc_type, int(limit))
+        return call_tool(
+            "按类型查询实体",
+            f"类型={ifc_type}，上限={limit}",
+            ifc_tools.list_entities_by_type,
+            ifc_path,
+            ifc_type,
+            int(limit),
+        )
 
     def get_entity_by_global_id(global_id: str) -> str:
         """Get detailed IFC entity information by GlobalId."""
-        return ifc_tools.get_entity_by_global_id(ifc_path, global_id)
+        return call_tool(
+            "按 GlobalId 查询实体",
+            f"GlobalId={global_id}",
+            ifc_tools.get_entity_by_global_id,
+            ifc_path,
+            global_id,
+        )
 
     def get_entity_by_step_id(step_id: int) -> str:
         """Get detailed IFC entity information by STEP id."""
-        return ifc_tools.get_entity_by_step_id(ifc_path, int(step_id))
+        return call_tool(
+            "按 STEP id 查询实体",
+            f"STEP id={step_id}",
+            ifc_tools.get_entity_by_step_id,
+            ifc_path,
+            int(step_id),
+        )
 
     def get_property_sets(global_id: str) -> str:
         """Get property sets and quantity sets by GlobalId."""
-        return ifc_tools.get_property_sets(ifc_path, global_id)
+        return call_tool(
+            "读取属性集",
+            f"GlobalId={global_id}",
+            ifc_tools.get_property_sets,
+            ifc_path,
+            global_id,
+        )
 
     def find_by_attribute(ifc_type: str, attribute: str, value: str, limit: int = 50) -> str:
         """Find IFC entities by simple attribute text matching."""
-        return ifc_tools.find_by_attribute(ifc_path, ifc_type, attribute, value, int(limit))
+        return call_tool(
+            "按属性查找实体",
+            f"类型={ifc_type}，属性={attribute}，值包含={value}，上限={limit}",
+            ifc_tools.find_by_attribute,
+            ifc_path,
+            ifc_type,
+            attribute,
+            value,
+            int(limit),
+        )
 
     def get_spatial_structure() -> str:
         """Return project, site, building, storey, and space entities."""
-        return ifc_tools.spatial_structure(ifc_path)
+        return call_tool("读取空间结构", "读取项目、场地、建筑、楼层和空间", ifc_tools.spatial_structure, ifc_path)
 
     def update_text_attribute_by_global_id(global_id: str, attribute: str, value: str) -> str:
         """Write a modified IFC copy after changing one editable text attribute by GlobalId."""
-        return ifc_tools.update_text_attribute_by_global_id(ifc_path, global_id, attribute, value)
+        return call_tool(
+            "修改文本属性",
+            f"GlobalId={global_id}，属性={attribute}",
+            ifc_tools.update_text_attribute_by_global_id,
+            ifc_path,
+            global_id,
+            attribute,
+            value,
+        )
 
     def update_text_attribute_by_step_id(step_id: int, attribute: str, value: str) -> str:
         """Write a modified IFC copy after changing one editable text attribute by STEP id."""
-        return ifc_tools.update_text_attribute_by_step_id(ifc_path, int(step_id), attribute, value)
+        return call_tool(
+            "修改文本属性",
+            f"STEP id={step_id}，属性={attribute}",
+            ifc_tools.update_text_attribute_by_step_id,
+            ifc_path,
+            int(step_id),
+            attribute,
+            value,
+        )
 
     def update_property_single_value(global_id: str, pset_name: str, property_name: str, value: str) -> str:
         """Write a modified IFC copy after changing an existing IfcPropertySingleValue."""
-        return ifc_tools.update_property_single_value(ifc_path, global_id, pset_name, property_name, value)
+        return call_tool(
+            "修改属性集值",
+            f"GlobalId={global_id}，属性集={pset_name}，属性={property_name}",
+            ifc_tools.update_property_single_value,
+            ifc_path,
+            global_id,
+            pset_name,
+            property_name,
+            value,
+        )
 
     def delete_product_by_global_id(global_id: str) -> str:
         """Write a modified IFC copy after deleting one supported IFC product by GlobalId."""
-        return ifc_tools.delete_product_by_global_id(ifc_path, global_id)
+        return call_tool(
+            "删除 IFC 产品",
+            f"GlobalId={global_id}",
+            ifc_tools.delete_product_by_global_id,
+            ifc_path,
+            global_id,
+        )
 
     def delete_product_by_step_id(step_id: int) -> str:
         """Write a modified IFC copy after deleting one supported IFC product by STEP id."""
-        return ifc_tools.delete_product_by_step_id(ifc_path, int(step_id))
+        return call_tool(
+            "删除 IFC 产品",
+            f"STEP id={step_id}",
+            ifc_tools.delete_product_by_step_id,
+            ifc_path,
+            int(step_id),
+        )
 
     return [
         StructuredTool.from_function(
@@ -185,7 +273,9 @@ def run_ifc_agent(
     ifc_path: str,
     system_prompt: str,
     messages: list[dict[str, Any]],
+    log_callback: LogCallback | None = None,
 ) -> str:
+    _emit_log(log_callback, "检查 LangChain 和 IFC 依赖")
     _require_langchain()
     if not DEEPSEEK_API_KEY:
         raise RuntimeError("DEEPSEEK_API_KEY is not set.")
@@ -197,7 +287,8 @@ def run_ifc_agent(
     if REQUEST_INTERVAL > 0:
         time.sleep(REQUEST_INTERVAL)
 
-    tools = _build_tools(ifc_path)
+    _emit_log(log_callback, f"载入当前对话记忆：{max(0, len(messages) - 1)} 条历史消息")
+    tools = _build_tools(ifc_path, log_callback)
     llm = ChatOpenAI(
         model=MODEL_NAME,
         temperature=TEMPERATURE,
@@ -213,11 +304,13 @@ def run_ifc_agent(
             "Return concise answers with relevant GlobalIds, STEP ids, and IFC types when available. "
             "IFC modification tools may be used only when the user explicitly requests a change. "
             "IFC deletion tools may be used only when the user explicitly requests deletion of a specific target. "
-            "Never overwrite the source IFC file; write and report the modified copy path."
+            "This project has one working IFC file. Apply explicit changes in place and report that same project IFC path."
         ),
     )
+    _emit_log(log_callback, f"Agent 已准备，当前项目 IFC：{ifc_path}")
     history = _to_lc_history(messages[:-1], MAX_HISTORY_MESSAGES)
     user_input = messages[-1]["content"] if messages else ""
     result = agent.invoke({"messages": [*history, HumanMessage(content=user_input)]})
     final_message = result["messages"][-1]
+    _emit_log(log_callback, "Agent 已完成回答")
     return str(final_message.content)

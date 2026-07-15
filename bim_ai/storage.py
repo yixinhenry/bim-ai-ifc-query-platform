@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(conversation_id) REFERENCES conversations(id)
 );
+
 """
 
 
@@ -112,9 +113,22 @@ def list_conversations(db_path: Path, project_id: int) -> list[dict[str, Any]]:
     return rows_to_dicts(rows)
 
 
-def get_conversation(db_path: Path, conversation_id: int) -> dict[str, Any]:
+def get_conversation(
+    db_path: Path,
+    conversation_id: int,
+    project_id: int | None = None,
+) -> dict[str, Any]:
     with connect(db_path) as conn:
-        row = conn.execute("SELECT * FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
+        if project_id is None:
+            row = conn.execute(
+                "SELECT * FROM conversations WHERE id = ?",
+                (conversation_id,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM conversations WHERE id = ? AND project_id = ?",
+                (conversation_id, project_id),
+            ).fetchone()
     if row is None:
         raise ValueError(f"Conversation not found: {conversation_id}")
     return dict(row)
@@ -125,8 +139,16 @@ def add_message(
     conversation_id: int,
     role: str,
     content: str,
+    project_id: int | None = None,
 ) -> int:
     with connect(db_path) as conn:
+        if project_id is not None:
+            conversation = conn.execute(
+                "SELECT id FROM conversations WHERE id = ? AND project_id = ?",
+                (conversation_id, project_id),
+            ).fetchone()
+            if conversation is None:
+                raise ValueError(f"Conversation not found in project: {conversation_id}")
         cur = conn.execute(
             """
             INSERT INTO messages (conversation_id, role, content)
@@ -141,10 +163,25 @@ def add_message(
         return int(cur.lastrowid)
 
 
-def list_messages(db_path: Path, conversation_id: int) -> list[dict[str, Any]]:
+def list_messages(
+    db_path: Path,
+    conversation_id: int,
+    project_id: int | None = None,
+) -> list[dict[str, Any]]:
     with connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id ASC",
-            (conversation_id,),
-        ).fetchall()
+        if project_id is None:
+            rows = conn.execute(
+                "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id ASC",
+                (conversation_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT m.* FROM messages AS m
+                JOIN conversations AS c ON c.id = m.conversation_id
+                WHERE m.conversation_id = ? AND c.project_id = ?
+                ORDER BY m.id ASC
+                """,
+                (conversation_id, project_id),
+            ).fetchall()
     return rows_to_dicts(rows)
