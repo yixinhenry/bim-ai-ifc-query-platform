@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 import time
+import asyncio
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
@@ -21,6 +23,7 @@ MODEL_NAME = os.getenv("BIM_AI_MODEL", DEEPSEEK_MODEL)
 BASE_URL = os.getenv("BIM_AI_BASE_URL", DEEPSEEK_BASE_URL)
 TEMPERATURE = float(os.getenv("BIM_AI_TEMPERATURE", "0"))
 MAX_HISTORY_MESSAGES = int(os.getenv("BIM_AI_MAX_HISTORY_MESSAGES", "20"))
+USE_IFC_MCP = os.getenv("BIM_AI_USE_MCP", "true").lower() in {"1", "true", "yes"}
 LogCallback = Callable[[str, str], None]
 AuditCallback = Callable[[str, str, dict[str, Any]], None]
 
@@ -471,24 +474,51 @@ def run_ifc_agent(
         base_url=BASE_URL,
         api_key=DEEPSEEK_API_KEY,
     )
+    effective_system_prompt = (
+        system_prompt
+        + "\n\nUse IFC tools for model facts. Respect the user's role and permission policy. "
+        "Return concise answers with relevant GlobalIds, STEP ids, and IFC types when available. "
+        "IFC modification tools may be used only when the user explicitly requests a change. "
+        "IFC deletion tools may be used only when the user explicitly requests deletion of a specific target. "
+        "For a deleted window, inspect openings to find the empty opening, then restore it from a matching existing window template. "
+        "For filling a wall hole, use the empty-opening tool only after verifying the opening has no filling. "
+        "This project has one working IFC file. Apply explicit changes in place and report that same project IFC path."
+    )
     agent = create_agent(
         model=llm,
         tools=tools,
-        system_prompt=(
-            system_prompt
-            + "\n\nUse IFC tools for model facts. Respect the user's role and permission policy. "
-            "Return concise answers with relevant GlobalIds, STEP ids, and IFC types when available. "
-            "IFC modification tools may be used only when the user explicitly requests a change. "
-            "IFC deletion tools may be used only when the user explicitly requests deletion of a specific target. "
-            "For a deleted window, inspect openings to find the empty opening, then restore it from a matching existing window template. "
-            "For filling a wall hole, use the empty-opening tool only after verifying the opening has no filling. "
-            "This project has one working IFC file. Apply explicit changes in place and report that same project IFC path."
-        ),
+        system_prompt=effective_system_prompt,
     )
     _emit_log(log_callback, f"Agent 已准备，当前项目 IFC：{ifc_path}")
     history = _to_lc_history(messages[:-1], MAX_HISTORY_MESSAGES)
     user_input = messages[-1]["content"] if messages else ""
-    _emit_audit(audit_callback, "agent_run", "started", {"model": MODEL_NAME, "user_input": user_input})
+    _emit_audit(audit_callback, "agent_run", "started", {"model": MODEL_NAME, "user_input": user_input, "mcp": USE_IFC_MCP})
+    if USE_IFC_MCP:
+        from langchain_mcp_adapters.tools import load_mcp_tools
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        async def run_mcp_agent() -> str:
+            command = str(Path(__file__).resolve().parent.parent / ".venv" / "Scripts" / "ifcmcp.exe")
+            parameters = StdioServerParameters(command=command, args=[])
+            async with stdio_client(parameters) as (reader, writer):
+                async with ClientSession(reader, writer) as session:
+                    await session.initialize()
+                    mcp_tools = await load_mcp_tools(session)
+                    load_tool = next(tool for tool in mcp_tools if tool.name == "ifc_load")
+                    await load_tool.ainvoke({"path": ifc_path})
+                    mcp_agent = create_agent(model=llm, tools=mcp_tools, system_prompt=effective_system_prompt)
+                    result = await mcp_agent.ainvoke({"messages": [*history, HumanMessage(content=user_input)]})
+                    return str(result["messages"][-1].content)
+
+        try:
+            answer = asyncio.run(run_mcp_agent())
+        except Exception as exc:
+            _emit_audit(audit_callback, "agent_run", "error", {"error": str(exc), "mcp": True})
+            raise
+        _emit_log(log_callback, "IfcMCP 会话已完成")
+        _emit_audit(audit_callback, "agent_run", "completed", {"answer": answer[:12000], "mcp": True})
+        return answer
     try:
         result = agent.invoke({"messages": [*history, HumanMessage(content=user_input)]})
     except Exception as exc:

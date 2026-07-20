@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
+
+
+AUDIT_LOG_FILENAME = "audit_events.jsonl"
 
 
 SCHEMA = """
@@ -44,18 +49,6 @@ CREATE TABLE IF NOT EXISTS viewer_selections (
     FOREIGN KEY(project_id) REFERENCES projects(id)
 );
 
-CREATE TABLE IF NOT EXISTS audit_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id INTEGER NOT NULL,
-    conversation_id INTEGER,
-    event_type TEXT NOT NULL,
-    status TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(project_id) REFERENCES projects(id),
-    FOREIGN KEY(conversation_id) REFERENCES conversations(id)
-);
-
 """
 
 
@@ -67,8 +60,12 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 
 def init_db(db_path: Path) -> None:
-    with connect(db_path) as conn:
+    conn = connect(db_path)
+    try:
         conn.executescript(SCHEMA)
+    finally:
+        conn.close()
+    _migrate_audit_events(db_path)
 
 
 def rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
@@ -248,15 +245,17 @@ def add_audit_event(
     status: str,
     payload: dict[str, Any],
 ) -> int:
-    with connect(db_path) as conn:
-        cur = conn.execute(
-            """
-            INSERT INTO audit_events (project_id, conversation_id, event_type, status, payload_json)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (project_id, conversation_id, event_type, status, json.dumps(payload, ensure_ascii=False, default=str)),
-        )
-        return int(cur.lastrowid)
+    event = {
+        "id": uuid4().hex,
+        "project_id": project_id,
+        "conversation_id": conversation_id,
+        "event_type": event_type,
+        "status": status,
+        "payload": payload,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _append_audit_event(db_path, event)
+    return 0
 
 
 def list_audit_events(
@@ -265,22 +264,59 @@ def list_audit_events(
     conversation_id: int | None = None,
     limit: int = 30,
 ) -> list[dict[str, Any]]:
-    with connect(db_path) as conn:
-        if conversation_id is None:
-            rows = conn.execute(
-                "SELECT * FROM audit_events WHERE project_id = ? ORDER BY id DESC LIMIT ?",
-                (project_id, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """
-                SELECT * FROM audit_events
-                WHERE project_id = ? AND conversation_id = ?
-                ORDER BY id DESC LIMIT ?
-                """,
-                (project_id, conversation_id, limit),
-            ).fetchall()
-    events = rows_to_dicts(rows)
-    for event in events:
-        event["payload"] = json.loads(event.pop("payload_json"))
+    events = _read_audit_events(db_path)
+    filtered = [
+        event
+        for event in events
+        if event.get("project_id") == project_id
+        and (conversation_id is None or event.get("conversation_id") == conversation_id)
+    ]
+    return list(reversed(filtered[-limit:]))
+
+
+def _audit_log_path(db_path: Path) -> Path:
+    return db_path.parent / AUDIT_LOG_FILENAME
+
+
+def _append_audit_event(db_path: Path, event: dict[str, Any]) -> None:
+    log_path = _audit_log_path(db_path)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as log_file:
+        log_file.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
+
+
+def _read_audit_events(db_path: Path) -> list[dict[str, Any]]:
+    log_path = _audit_log_path(db_path)
+    if not log_path.is_file():
+        return []
+
+    events: list[dict[str, Any]] = []
+    with log_path.open(encoding="utf-8") as log_file:
+        for line in log_file:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict):
+                events.append(event)
     return events
+
+
+def _migrate_audit_events(db_path: Path) -> None:
+    """Move audit rows created by earlier versions into the sibling JSONL log."""
+    conn = connect(db_path)
+    try:
+        table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'audit_events'"
+        ).fetchone()
+        if table is None:
+            return
+        rows = conn.execute("SELECT * FROM audit_events ORDER BY id ASC").fetchall()
+
+        for row in rows:
+            legacy_event = dict(row)
+            legacy_event["payload"] = json.loads(legacy_event.pop("payload_json"))
+            _append_audit_event(db_path, legacy_event)
+        conn.execute("DROP TABLE audit_events")
+    finally:
+        conn.close()
