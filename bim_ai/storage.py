@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,28 @@ CREATE TABLE IF NOT EXISTS messages (
     role TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(conversation_id) REFERENCES conversations(id)
+);
+
+CREATE TABLE IF NOT EXISTS viewer_selections (
+    project_id INTEGER PRIMARY KEY,
+    step_id INTEGER NOT NULL,
+    ifc_type TEXT,
+    global_id TEXT,
+    name TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(project_id) REFERENCES projects(id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    conversation_id INTEGER,
+    event_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(project_id) REFERENCES projects(id),
     FOREIGN KEY(conversation_id) REFERENCES conversations(id)
 );
 
@@ -185,3 +208,79 @@ def list_messages(
                 (conversation_id, project_id),
             ).fetchall()
     return rows_to_dicts(rows)
+
+
+def set_viewer_selection(
+    db_path: Path,
+    project_id: int,
+    step_id: int,
+    ifc_type: str | None = None,
+    global_id: str | None = None,
+    name: str | None = None,
+) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO viewer_selections (project_id, step_id, ifc_type, global_id, name, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(project_id) DO UPDATE SET
+                step_id = excluded.step_id,
+                ifc_type = excluded.ifc_type,
+                global_id = excluded.global_id,
+                name = excluded.name,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (project_id, step_id, ifc_type, global_id, name),
+        )
+
+
+def get_viewer_selection(db_path: Path, project_id: int) -> dict[str, Any] | None:
+    with connect(db_path) as conn:
+        row = conn.execute("SELECT * FROM viewer_selections WHERE project_id = ?", (project_id,)).fetchone()
+    return dict(row) if row is not None else None
+
+
+def add_audit_event(
+    db_path: Path,
+    project_id: int,
+    conversation_id: int | None,
+    event_type: str,
+    status: str,
+    payload: dict[str, Any],
+) -> int:
+    with connect(db_path) as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO audit_events (project_id, conversation_id, event_type, status, payload_json)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (project_id, conversation_id, event_type, status, json.dumps(payload, ensure_ascii=False, default=str)),
+        )
+        return int(cur.lastrowid)
+
+
+def list_audit_events(
+    db_path: Path,
+    project_id: int,
+    conversation_id: int | None = None,
+    limit: int = 30,
+) -> list[dict[str, Any]]:
+    with connect(db_path) as conn:
+        if conversation_id is None:
+            rows = conn.execute(
+                "SELECT * FROM audit_events WHERE project_id = ? ORDER BY id DESC LIMIT ?",
+                (project_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM audit_events
+                WHERE project_id = ? AND conversation_id = ?
+                ORDER BY id DESC LIMIT ?
+                """,
+                (project_id, conversation_id, limit),
+            ).fetchall()
+    events = rows_to_dicts(rows)
+    for event in events:
+        event["payload"] = json.loads(event.pop("payload_json"))
+    return events

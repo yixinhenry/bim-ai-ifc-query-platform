@@ -12,13 +12,16 @@ from dotenv import load_dotenv
 
 from bim_ai.agent import MODEL_NAME, run_ifc_agent
 from bim_ai.storage import (
+    add_audit_event,
     add_message,
     create_conversation,
     create_project,
     get_conversation,
     get_project,
+    get_viewer_selection,
     init_db,
     list_conversations,
+    list_audit_events,
     list_messages,
     list_projects,
 )
@@ -186,6 +189,20 @@ def render_chat(project_id: int, conversation_id: int) -> None:
         with st.expander("Conversation system prompt", expanded=False):
             st.code(conversation["system_prompt"], language="text")
 
+        selection = get_viewer_selection(DB_PATH, project_id)
+        if selection is not None:
+            label = f"已选中：{selection['ifc_type']} #{selection['step_id']}"
+            if selection.get("name"):
+                label += f" — {selection['name']}"
+            st.caption(label)
+
+        with st.expander("操作审计日志", expanded=False):
+            events = list_audit_events(DB_PATH, project_id, conversation_id)
+            if events:
+                st.json(events)
+            else:
+                st.caption("尚无操作记录。")
+
         for msg in messages:
             if msg["role"] in {"user", "assistant"}:
                 with st.chat_message(msg["role"]):
@@ -195,7 +212,23 @@ def render_chat(project_id: int, conversation_id: int) -> None:
         if not prompt:
             return
 
+        selected_context = ""
+        if selection is not None:
+            selected_context = (
+                f"\n\n[Viewer selected IFC entity: STEP #{selection['step_id']}, "
+                f"type={selection.get('ifc_type')}, GlobalId={selection.get('global_id')}, "
+                f"name={selection.get('name')}]"
+            )
+        agent_prompt = prompt + selected_context
         add_message(DB_PATH, conversation_id, "user", prompt, project_id)
+        add_audit_event(
+            DB_PATH,
+            project_id,
+            conversation_id,
+            "user_request",
+            "received",
+            {"prompt": prompt, "viewer_selection": selection},
+        )
         with st.chat_message("user"):
             st.markdown(prompt)
 
@@ -209,7 +242,11 @@ def render_chat(project_id: int, conversation_id: int) -> None:
                 def show_log(message: str, level: str = "info") -> None:
                     log_queue.put((level, message))
 
+                def write_audit(event_type: str, status: str, payload: dict) -> None:
+                    add_audit_event(DB_PATH, project_id, conversation_id, event_type, status, payload)
+
                 updated_messages = list_messages(DB_PATH, conversation_id, project_id)
+                updated_messages[-1] = {**updated_messages[-1], "content": agent_prompt}
 
                 def run_agent() -> None:
                     try:
@@ -218,6 +255,7 @@ def render_chat(project_id: int, conversation_id: int) -> None:
                             system_prompt=conversation["system_prompt"],
                             messages=updated_messages,
                             log_callback=show_log,
+                            audit_callback=write_audit,
                         )
                         result_queue.put(("ok", result))
                     except Exception as exc:
