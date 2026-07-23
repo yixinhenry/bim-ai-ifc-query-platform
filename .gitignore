@@ -9,3 +9,5 @@ data/
 data/app.db
 data/projects/
 ifc_files/modified/
+viewer/node_modules/
+viewer/dist/

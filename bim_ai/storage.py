@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -73,7 +74,7 @@ def rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
 
 
 def create_project(db_path: Path, name: str, ifc_path: str, original_filename: str) -> int:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn, conn:
         cur = conn.execute(
             "INSERT INTO projects (name, ifc_path, original_filename) VALUES (?, ?, ?)",
             (name, ifc_path, original_filename),
@@ -82,7 +83,7 @@ def create_project(db_path: Path, name: str, ifc_path: str, original_filename: s
 
 
 def ensure_project(db_path: Path, name: str, ifc_path: str, original_filename: str) -> int:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn, conn:
         row = conn.execute("SELECT id FROM projects WHERE ifc_path = ?", (ifc_path,)).fetchone()
         if row is not None:
             return int(row["id"])
@@ -94,13 +95,13 @@ def ensure_project(db_path: Path, name: str, ifc_path: str, original_filename: s
 
 
 def list_projects(db_path: Path) -> list[dict[str, Any]]:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn, conn:
         rows = conn.execute("SELECT * FROM projects ORDER BY name ASC, id ASC").fetchall()
     return rows_to_dicts(rows)
 
 
 def get_project(db_path: Path, project_id: int) -> dict[str, Any]:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn, conn:
         row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
     if row is None:
         raise ValueError(f"Project not found: {project_id}")
@@ -113,7 +114,7 @@ def create_conversation(
     title: str,
     system_prompt: str,
 ) -> int:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn, conn:
         cur = conn.execute(
             """
             INSERT INTO conversations (project_id, title, system_prompt)
@@ -125,7 +126,7 @@ def create_conversation(
 
 
 def list_conversations(db_path: Path, project_id: int) -> list[dict[str, Any]]:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn, conn:
         rows = conn.execute(
             "SELECT * FROM conversations WHERE project_id = ? ORDER BY updated_at DESC, id DESC",
             (project_id,),
@@ -138,7 +139,7 @@ def get_conversation(
     conversation_id: int,
     project_id: int | None = None,
 ) -> dict[str, Any]:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn, conn:
         if project_id is None:
             row = conn.execute(
                 "SELECT * FROM conversations WHERE id = ?",
@@ -161,7 +162,7 @@ def add_message(
     content: str,
     project_id: int | None = None,
 ) -> int:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn, conn:
         if project_id is not None:
             conversation = conn.execute(
                 "SELECT id FROM conversations WHERE id = ? AND project_id = ?",
@@ -188,7 +189,7 @@ def list_messages(
     conversation_id: int,
     project_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn, conn:
         if project_id is None:
             rows = conn.execute(
                 "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id ASC",
@@ -215,7 +216,7 @@ def set_viewer_selection(
     global_id: str | None = None,
     name: str | None = None,
 ) -> None:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn, conn:
         conn.execute(
             """
             INSERT INTO viewer_selections (project_id, step_id, ifc_type, global_id, name, updated_at)
@@ -232,7 +233,7 @@ def set_viewer_selection(
 
 
 def get_viewer_selection(db_path: Path, project_id: int) -> dict[str, Any] | None:
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn, conn:
         row = conn.execute("SELECT * FROM viewer_selections WHERE project_id = ?", (project_id,)).fetchone()
     return dict(row) if row is not None else None
 
@@ -269,7 +270,10 @@ def list_audit_events(
         event
         for event in events
         if event.get("project_id") == project_id
-        and (conversation_id is None or event.get("conversation_id") == conversation_id)
+        and (
+            conversation_id is None
+            or event.get("conversation_id") in {None, conversation_id}
+        )
     ]
     return list(reversed(filtered[-limit:]))
 

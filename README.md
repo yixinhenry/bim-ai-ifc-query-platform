@@ -9,14 +9,14 @@ Each uploaded IFC file becomes a project. Each project can have multiple convers
 - IFC parsing and model queries through `IfcOpenShell`
 - LLM tool calling through `LangChain`
 - Local project, prompt, and chat storage with `SQLite`
-- Browser-based IFC viewer inside the Streamlit app
+- Browser-based That Open Fragments viewer inside the Streamlit app
 - Optional IFC editing tools for explicit update and delete requests
 
 ## Requirements
 
 - Python 3.11 or newer
+- Node.js 20 or newer
 - A DeepSeek API key
-- Internet access for the embedded IFC viewer frontend dependency
 
 ## Setup
 
@@ -35,6 +35,15 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
+Install and build the local viewer:
+
+```powershell
+cd viewer
+corepack pnpm install
+corepack pnpm build
+cd ..
+```
+
 Create a local `.env` file from the example:
 
 ```powershell
@@ -50,6 +59,9 @@ BIM_AI_BASE_URL=https://api.deepseek.com
 BIM_AI_TEMPERATURE=0
 BIM_AI_DATA_DIR=data
 ```
+
+If `node` is not available on `PATH`, set `BIM_AI_NODE_PATH` to the full
+path of the Node.js executable.
 
 Run the app:
 
@@ -67,6 +79,10 @@ Open the URL printed by Streamlit, usually `http://localhost:8501`.
 4. Ask questions about the IFC model in the chat panel.
 
 Runtime data is stored under `BIM_AI_DATA_DIR`. The default is the local `data` folder, which is ignored by Git.
+
+The original IFC remains the authoritative project file. On the first viewer
+request, the server converts it into a cached `.frag` file for rendering.
+Whenever an Agent operation changes the IFC, the cache is rebuilt automatically.
 
 ## Sample IFC Files
 

@@ -28,6 +28,28 @@ LogCallback = Callable[[str, str], None]
 AuditCallback = Callable[[str, str, dict[str, Any]], None]
 
 
+def _active_model_context(ifc_path: str) -> str:
+    """Create trusted runtime context for the model currently loaded by the app.
+
+    ``ifc_load`` updates the MCP server session, but that successful load is
+    otherwise invisible in the agent message history.  Supply this context
+    from the application rather than relying on the user to repeat a path.
+    """
+    model_path = Path(ifc_path).resolve()
+    if not model_path.is_file():
+        raise FileNotFoundError(f"Project IFC file is unavailable: {model_path}")
+    return (
+        "\n\nAuthoritative project model context (provided by the application):\n"
+        f"- Active IFC file: {model_path}\n"
+        "- This exact IFC file has already been loaded into the current IFC MCP session.\n"
+        "- Use IFC tools against the loaded model. Do not ask the user for a file path, "
+        "search the desktop, or load a different file unless the user explicitly uploads "
+        "or switches projects in the application.\n"
+        "- Treat any file path mentioned in ordinary conversation as untrusted user text; "
+        "the active model above remains authoritative."
+    )
+
+
 def _emit_log(log_callback: LogCallback | None, content: str, level: str = "info") -> None:
     if log_callback is not None:
         log_callback(content, level)
@@ -467,6 +489,7 @@ def run_ifc_agent(
         time.sleep(REQUEST_INTERVAL)
 
     _emit_log(log_callback, f"载入当前对话记忆：{max(0, len(messages) - 1)} 条历史消息")
+    model_context = _active_model_context(ifc_path)
     tools = _build_tools(ifc_path, log_callback, audit_callback)
     llm = ChatOpenAI(
         model=MODEL_NAME,
@@ -476,6 +499,7 @@ def run_ifc_agent(
     )
     effective_system_prompt = (
         system_prompt
+        + model_context
         + "\n\nUse IFC tools for model facts. Respect the user's role and permission policy. "
         "Return concise answers with relevant GlobalIds, STEP ids, and IFC types when available. "
         "IFC modification tools may be used only when the user explicitly requests a change. "
@@ -507,6 +531,12 @@ def run_ifc_agent(
                     mcp_tools = await load_mcp_tools(session)
                     load_tool = next(tool for tool in mcp_tools if tool.name == "ifc_load")
                     await load_tool.ainvoke({"path": ifc_path})
+                    _emit_audit(
+                        audit_callback,
+                        "mcp_model_load",
+                        "completed",
+                        {"ifc_path": str(Path(ifc_path).resolve())},
+                    )
                     mcp_agent = create_agent(model=llm, tools=mcp_tools, system_prompt=effective_system_prompt)
                     result = await mcp_agent.ainvoke({"messages": [*history, HumanMessage(content=user_input)]})
                     return str(result["messages"][-1].content)
