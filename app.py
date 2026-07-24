@@ -7,7 +7,6 @@ import threading
 from uuid import uuid4
 
 import streamlit as st
-import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 from bim_ai.agent import MODEL_NAME, run_ifc_agent
@@ -25,10 +24,12 @@ from bim_ai.storage import (
     list_messages,
     list_projects,
 )
+from bim_ai.streamlit_shutdown import install_streamlit_shutdown_guard
 from bim_ai.viewer_server import start_viewer_server
 
 
 load_dotenv()
+install_streamlit_shutdown_guard()
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -297,10 +298,9 @@ def render_viewer(project: dict) -> None:
     version = f"{model_path.stat().st_mtime_ns}-{model_path.stat().st_size}"
     st.caption(f"IFC version: {version}")
     viewer_url = get_viewer_base_url(str(DB_PATH))
-    components.iframe(
+    st.iframe(
         f"{viewer_url}/?project_id={project['id']}&v={version}",
         height=720,
-        scrolling=False,
     )
 
 

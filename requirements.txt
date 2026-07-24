@@ -1,4 +1,4 @@
-streamlit>=1.36
+streamlit>=1.56
 langchain>=0.2
 langchain-openai>=0.1
 ifcopenshell>=0.7

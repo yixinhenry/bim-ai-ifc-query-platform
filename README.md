@@ -70,6 +70,10 @@ Run the app:
 ```
 
 Open the URL printed by Streamlit, usually `http://localhost:8501`.
+Press `Ctrl+C` once to stop. The app gives active connections up to five
+seconds to close, then finishes shutdown automatically. Pressing `Ctrl+C`
+again requests an immediate exit. Set `BIM_AI_SHUTDOWN_TIMEOUT` to change
+the graceful-shutdown limit.
 
 ## Workflow
 

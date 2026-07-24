@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 import json
 import mimetypes
 import os
@@ -16,9 +17,13 @@ from bim_ai.storage import add_audit_event, get_project, set_viewer_selection
 VIEWER_DIR = Path(__file__).resolve().parent.parent / "viewer"
 VIEWER_DIST_DIR = VIEWER_DIR / "dist"
 FRAGMENT_CONVERTER = VIEWER_DIR / "scripts" / "convert-ifc.mjs"
+_RUNNING_SERVERS: list[tuple["_ViewerServer", threading.Thread]] = []
+_RUNNING_SERVERS_LOCK = threading.Lock()
 
 
 class _ViewerServer(ThreadingHTTPServer):
+    daemon_threads = True
+
     def __init__(self, server_address, handler_class, db_path: Path):
         super().__init__(server_address, handler_class)
         self.db_path = db_path
@@ -324,9 +329,30 @@ class _ViewerHandler(BaseHTTPRequestHandler):
 
 def start_viewer_server(db_path: Path) -> str:
     server = _ViewerServer(("127.0.0.1", 0), _ViewerHandler, db_path)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        name=f"ifc-viewer-{server.server_port}",
+        daemon=True,
+    )
     thread.start()
+    with _RUNNING_SERVERS_LOCK:
+        _RUNNING_SERVERS.append((server, thread))
     return f"http://127.0.0.1:{server.server_port}"
+
+
+def stop_viewer_servers() -> None:
+    with _RUNNING_SERVERS_LOCK:
+        running_servers = list(_RUNNING_SERVERS)
+        _RUNNING_SERVERS.clear()
+
+    for server, thread in running_servers:
+        if thread.is_alive():
+            server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+atexit.register(stop_viewer_servers)
 
 
 def _run_standalone() -> None:
